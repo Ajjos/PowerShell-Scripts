@@ -1,0 +1,41 @@
+﻿# Script: Add-Domain.ps1
+# Purpose: Adds domains in bulk to M365 tenant
+# Author: Ajay Joshi
+# Requirements: Microsoft Graph PowerShell
+
+# Read domains from CSV, add them, and output their TXT verification records
+$domains = Import-Csv Domains.csv
+$i = 1
+$results = @()
+
+foreach ($d in $domains) {
+    
+    $i
+    $id = $d.Domain.Trim()
+    $id
+
+    # 1) Create the domain object in your tenant
+    # New-MgDomain -Id $id | Out-Null   # Adds the domain (not yet verified)  # [2](https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.identity.directorymanagement/new-mgdomain?view=graph-powershell-1.0)
+
+    # Start-Sleep -Seconds 2 # brief pause
+
+    # 2) Retrieve verification DNS records and pick the TXT
+    $txt = Get-MgDomainVerificationDnsRecord -DomainId $id | Where-Object { $_.RecordType -eq "Txt" }                        
+    
+    # [3](https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.identity.directorymanagement/get-mgdomainverificationdnsrecord?view=graph-powershell-1.0)
+
+    # The TXT value is typically in the AdditionalProperties.Value or Text attributes
+    $results += [PSCustomObject]@{
+        Domain        = $id
+        RecordType    = $txt.RecordType
+        Ttl           = $txt.Ttl
+        Name          = $txt.AdditionalProperties["Name"]
+        TxtValue      = $txt.AdditionalProperties["text"]
+        SupportedSvc  = $txt.SupportedService
+    }
+
+    $i++
+}
+
+# Show on screen and also export for your DNS team
+$results | Export-csv Domains-Txt-records.csv -NoTypeInformation -Encoding UTF8

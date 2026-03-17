@@ -1,0 +1,61 @@
+﻿# Script: Verify-Domain.ps1
+# Purpose: Verifies domains in bulk after verification DNS records have been added to M365 tenant
+# Author: Ajay Joshi
+# Requirements: Microsoft Graph PowerShell
+
+
+# Input list
+$inFile  = ".\domains.csv"
+# Output list-with-status
+$outFile = ".\domains_with_status.csv"
+
+$domains = Import-Csv $inFile
+$results = New-Object System.Collections.Generic.List[object]
+
+foreach ($row in $domains) {
+    $domain = $row.domain.Trim()
+    if ([string]::IsNullOrWhiteSpace($domain)) { continue }
+
+    Write-Host "Confirming domain: $domain ..." -ForegroundColor Cyan
+
+    $verified = $false
+    try {
+        # Try confirm (succeeds if TXT is correct, harmless if already verified)
+        Confirm-MgDomain -DomainId $domain -ErrorAction Stop
+        # Re-check the current verification state
+        $domObj = Get-MgDomain -DomainId $domain
+        $verified = [bool]$domObj.IsVerified
+    }
+    catch {
+        $verified = $false
+    }
+
+    if ($verified) {
+        Write-Host "  ✔ Verified: $domain — exporting service configuration records..." -ForegroundColor Green
+
+        $svc = (Get-MgDomain -DomainId $domain).ServiceConfigurationRecords
+
+        # Export only service configuration records (one CSV per domain)
+        $svc |
+            Select-Object `
+                RecordType,
+                Label,
+                Text,
+                Ttl,
+                AdditionalProperties |
+            Export-Csv -Path ".\${domain}.csv" -NoTypeInformation
+    }
+    else {
+        Write-Host "  ✖ Not verified: $domain — skipping service record export." -ForegroundColor Yellow
+    }
+
+    # Add status row for the summary CSV
+    $results.Add([pscustomobject]@{
+        domain = $domain
+        Status = if ($verified) { "Verified" } else { "NotVerified" }
+    })
+}
+
+# Write the new CSV with the Status column
+$results | Export-Csv -Path $outFile -NoTypeInformation
+Write-Host "`nSummary written to $outFile" -ForegroundColor Cyan
