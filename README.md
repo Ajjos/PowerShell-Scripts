@@ -1,18 +1,32 @@
-# M365 Automation Scripts
+# PowerShell Scripts for Microsoft 365
 
-Collection of PowerShell scripts for Microsoft 365, Entra ID, Intune, and Azure automation.
+This repository contains PowerShell scripts for automating and troubleshooting Microsoft 365 services including Entra ID, Intune, Exchange Online, and Azure.
 
-## Categories
-- Entra ID
-- AD Connect
+## 📂 Categories
+
+- Entra ID (Azure AD)
 - Intune
 - Exchange Online
+- AD Connect
 - Teams
-- PnP/SharePoint/OneDrive
+- SahrePoint/PnP/OneDrive
 & more
 
-## Usage
-Each script contains inline comments for usage.
+## 🛠 Requirements
 
-## Author
-Ajay Joshi
+- PowerShell 7+
+- Microsoft Graph PowerShell SDK
+- Required permissions based on script
+
+## 📌 Usage
+
+Each script includes inline comments explaining usage and prerequisites.
+
+## 👨‍💻 Author
+
+Ajay Joshi  
+Microsoft 365 | Intune | Entra ID | EXO | Teams | AD Connect | PowerShell
+
+---
+
+⭐ If you find this useful, feel free to star the repo!
