@@ -9,7 +9,7 @@ This repository contains PowerShell scripts for automating and troubleshooting M
 - Exchange Online
 - AD Connect
 - Teams
-- SahrePoint/PnP/OneDrive
+- SharePoint/PnP/OneDrive
 & more
 
 ## 🛠 Requirements
