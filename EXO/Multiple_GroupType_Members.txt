@@ -1,0 +1,216 @@
+##############################################################
+#  UNIVERSAL GROUP ENUMERATION SCRIPT
+#  Covers:
+#   - Distribution Lists (DL)
+#   - Mail-enabled Security Groups (ME-SG)
+#   - Dynamic Distribution Groups (DDG)
+#   - Microsoft 365 Groups (Unified)
+#   - Azure AD Security Groups (AAD-SG)
+#
+#  Uses Get-Recipient for all Exchange-recognized groups
+#  Uses Get-MgGroup only for pure AAD Security Groups
+#  Input: CSV file with "Name" column. Need to modify if inputting any other Identity type like Id, Email etc.
+#  Output: GroupId, Name, Type, Members, Owners
+##############################################################
+
+function Get-GroupDetails {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Group
+    )
+
+    $Members = @()
+    $Owners  = @()
+    $GroupId = $null
+    $GroupType = "Unknown"
+
+
+    ##############################################################
+    # 1️⃣ EXCHANGE DETECTION (DL, ME-SG, DDG, Unified)
+    ##############################################################
+
+    $rec = Get-Recipient -Identity $Group -ErrorAction SilentlyContinue | Select ExternalDirectoryObjectId, DisplayName, RecipientTypeDetails
+
+    if ($rec) {
+
+        # EXO Group ID
+        $GroupId = $rec.ExternalDirectoryObjectId
+        $GroupName = $rec.DisplayName
+
+        switch ($rec.RecipientTypeDetails) {
+
+            ##############################################################
+            # DISTRIBUTION LIST
+            ##############################################################
+            "MailUniversalDistributionGroup" {
+
+                $GroupType = "Distribution"
+
+                $Members = Get-DistributionGroupMember -Identity $GroupName -ResultSize Unlimited |
+                           Select-Object -ExpandProperty PrimarySmtpAddress
+
+                $Owners = (Get-DistributionGroup -Identity $GroupName).ManagedBy |
+                          ForEach-Object {
+                              (Get-Recipient -Identity $_ -ErrorAction SilentlyContinue).PrimarySmtpAddress
+                          }
+
+                return [PSCustomObject]@{
+                    GroupId   = $GroupId
+                    Name      = $GroupName
+                    GroupType = $GroupType
+                    Members   = $Members
+                    Owners    = $Owners
+                }
+            }
+
+            ##############################################################
+            # MAIL-ENABLED SECURITY GROUP
+            ##############################################################
+            "MailUniversalSecurityGroup" {
+
+                $GroupType = "Mail-enabled Security"
+
+                $Members = Get-DistributionGroupMember -Identity $GroupName -ResultSize Unlimited |
+                           Select-Object -ExpandProperty PrimarySmtpAddress
+
+                $Owners = (Get-DistributionGroup -Identity $GroupName).ManagedBy |
+                          ForEach-Object {
+                              (Get-Recipient -Identity $_ -ErrorAction SilentlyContinue).PrimarySmtpAddress
+                          }
+
+                return [PSCustomObject]@{
+                    GroupId   = $GroupId
+                    Name      = $GroupName
+                    GroupType = $GroupType
+                    Members   = $Members
+                    Owners    = $Owners
+                }
+            }
+
+            ##############################################################
+            # DYNAMIC DISTRIBUTION GROUP
+            ##############################################################
+            "DynamicDistributionGroup" {
+
+                $GroupType = "Dynamic Distribution"
+
+                $dg = Get-DynamicDistributionGroup -Identity $GroupName -ErrorAction SilentlyContinue
+
+                $Members = Get-Recipient -RecipientPreviewFilter $dg.RecipientFilter |
+                           Select-Object -ExpandProperty PrimarySmtpAddress
+
+                $Owners = (Get-DistributionGroup -Identity $GroupName).ManagedBy |
+                          ForEach-Object {
+                              (Get-Recipient -Identity $_ -ErrorAction SilentlyContinue).PrimarySmtpAddress
+                          }
+
+                return [PSCustomObject]@{
+                    GroupId   = $GroupId
+                    Name      = $GroupName
+                    GroupType = $GroupType
+                    Members   = $Members
+                    Owners    = @()
+                }
+            }
+
+            ##############################################################
+            # MICROSOFT 365 GROUP (GroupMailbox)
+            ##############################################################
+            "GroupMailbox" {
+
+                $GroupType = "Microsoft 365"
+
+                $Members = Get-UnifiedGroupLinks -Identity $GroupName -LinkType Members |
+                           Select-Object -ExpandProperty PrimarySmtpAddress
+
+                $Owners = Get-UnifiedGroupLinks -Identity $GroupName -LinkType Owners |
+                          Select-Object -ExpandProperty PrimarySmtpAddress
+
+                return [PSCustomObject]@{
+                    GroupId   = $GroupId
+                    Name      = $GroupName
+                    GroupType = $GroupType
+                    Members   = $Members
+                    Owners    = $Owners
+                }
+            }
+
+        }
+    }
+
+
+    ##############################################################
+    # 2️⃣ FALLBACK TO AAD SECURITY GROUP (NOT MAIL-ENABLED IN EXO)
+    ##############################################################
+
+    $aad = Get-MgGroup -Filter "DisplayName eq '$Group'" `
+                       -Property Id, DisplayName, SecurityEnabled, MailEnabled `
+                       -ErrorAction SilentlyContinue
+
+    if ($aad) {
+
+        # AAD Security Group
+        if ($aad.SecurityEnabled -eq $true -and $aad.MailEnabled -eq $false) {
+
+            $GroupType = "Security"
+            $GroupId   = $aad.Id
+            $GroupName = $aad.DisplayName
+
+            $Members = Get-MgGroupMember -GroupId $GroupId -All |
+                       ForEach-Object { $_.AdditionalProperties['mail'] }
+
+            $Owners = Get-MgGroupOwner -GroupId $GroupId -All |
+                      ForEach-Object { $_.AdditionalProperties['mail'] }
+
+            return [PSCustomObject]@{
+                GroupId   = $GroupId
+                Name      = $GroupName
+                GroupType = $GroupType
+                Members   = $Members
+                Owners    = $Owners
+            }
+        }
+    }
+
+
+    ##############################################################
+    # 3️⃣ UNKNOWN GROUP TYPE
+    ##############################################################
+
+    return [PSCustomObject]@{
+        GroupId   = $null
+        Name      = $GroupName
+        GroupType = "Unknown"
+        Members   = @()
+        Owners    = @()
+    }
+}
+
+
+
+##############################################################
+# MAIN EXECUTION — SAMPLE
+##############################################################
+
+# CSV must have column "Group"
+$Groups = Import-Csv .\Groups-Sandeep.csv
+
+$Results = @()
+
+foreach ($G in $Groups) {
+
+    $Details = Get-GroupDetails -Group $G.Name
+
+    $Results += [PSCustomObject]@{
+        "Group ID"   = $Details.GroupId
+        "Group Name" = $Details.Name
+        "Group Type" = $Details.GroupType
+        "Members"    = $Details.Members -join ";"
+        "Owners"     = $Details.Owners -join ";"
+    }
+}
+
+$Date = (Get-Date).ToString("MMMM dd, yyyy")
+
+$Results | Export-CSv Sandeep-Group-Members-$Date.csv -NoTypeInformation -Encoding UTF8
+Write-Host "The report has been exported."
